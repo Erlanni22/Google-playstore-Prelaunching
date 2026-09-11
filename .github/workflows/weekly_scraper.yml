@@ -1,0 +1,28 @@
+name: Weekly Play Store Scraper
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 코드 가져오기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 환경 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: 패키지 및 가상 브라우저 설치
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+
+      - name: 크롤러 실행
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: python main.py
