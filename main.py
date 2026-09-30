@@ -10,6 +10,7 @@ GCP_SA_KEY = os.environ.get("GCP_SA_KEY")
 
 def run():
     print("사전등록 게임 크롤링을 시작합니다...")
+    today_str = time.strftime("%Y-%m-%d")
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -59,8 +60,7 @@ def run():
                     if meta_dev:
                         developer = meta_dev.get_attribute("content") or "확인 필요"
                 
-                today = time.strftime("%Y-%m-%d")
-                scraped_data.append([today, title, developer, "사전등록 중", detail_url])
+                scraped_data.append([today_str, title, developer, "사전등록 중", detail_url])
             except Exception as e:
                 print(f"파싱 에러 ({app_id}): {e}")
                 
@@ -73,13 +73,22 @@ def run():
         gc = gspread.authorize(creds)
         
         sh = gc.open_by_key(SHEET_ID)
-        worksheet = sh.get_worksheet(0)
         
+        # 오늘 날짜(예: 2026-09-30) 이름의 워크시트(탭) 생성 또는 가져오기
+        try:
+            worksheet = sh.worksheet(today_str)
+            print(f"기존 탭 '{today_str}'을(를) 사용합니다.")
+        except gspread.WorksheetNotFound:
+            # 탭이 없으면 새 탭 생성 (행 1000, 열 10)
+            worksheet = sh.add_worksheet(title=today_str, rows=1000, cols=10)
+            print(f"새 탭 '{today_str}'을(를) 생성했습니다.")
+        
+        # 새 탭이 비어있으면 헤더 작성
         if len(worksheet.get_all_values()) == 0:
             worksheet.append_row(["수집일자", "타이틀", "개발사/퍼블리셔", "출시예정일", "스토어 링크"])
             
         worksheet.append_rows(scraped_data)
-        print(f"🎉 성공: 구글 시트에 {len(scraped_data)}건의 데이터가 업데이트되었습니다!")
+        print(f"🎉 성공: '{today_str}' 탭에 {len(scraped_data)}건의 데이터가 저장되었습니다!")
 
 if __name__ == "__main__":
     run()
