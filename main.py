@@ -9,21 +9,21 @@ from playwright.sync_api import sync_playwright
 
 SHEET_ID = "1uMzoo_Z8qSmEGrTMb6S3Ab1Ct-BvxmxYs8_atTR_dzE"
 GCP_SA_KEY = os.environ.get("GCP_SA_KEY")
-SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
+SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
+CHANNEL_ID = "C0BUE1A3601"
 
-# 팀별 슬랙 담당자 User ID (추후 실제 슬랙 멤버 ID로 교체 가능)
+# 팀별 슬랙 담당자 User ID 매핑
 SLACK_TAGS = {
-    "NEXON": "<@U_NEXON_LEAD>",       # 넥슨 전담 팀
-    "DOMESTIC": "<@U_DOMESTIC_LEAD>", # 국내 게임사 전담 팀
-    "GLOBAL": "<@U_GLOBAL_LEAD>"     # 글로벌 게임사 전담 팀
+    "NEXON": "<@U_NEXON_LEAD>",
+    "DOMESTIC": "<@U_DOMESTIC_LEAD>",
+    "GLOBAL": "<@U_GLOBAL_LEAD>"
 }
 
-# [S등급] 식별을 위한 주요 대형 퍼블리셔/스튜디오 매핑 룰
 PUBLISHER_MAPPING = [
-    # 넥슨 전담 팀 (NEXON)
+    # 넥슨 전담 팀
     {"keywords": ["nexon", "neptune", "넵튠", "devsisters", "데브시스터즈"], "publisher": "NEXON Company", "team": "NEXON"},
     
-    # 국내 게임사 전담 팀 (DOMESTIC)
+    # 국내 게임사 전담 팀
     {"keywords": ["krafton", "크래프톤"], "publisher": "Krafton", "team": "DOMESTIC"},
     {"keywords": ["kakaogames", "kakao"], "publisher": "Kakao Games", "team": "DOMESTIC"},
     {"keywords": ["netmarble", "넷마블"], "publisher": "Netmarble", "team": "DOMESTIC"},
@@ -35,7 +35,7 @@ PUBLISHER_MAPPING = [
     {"keywords": ["gravity"], "publisher": "Gravity", "team": "DOMESTIC"},
     {"keywords": ["linegames"], "publisher": "Line Games", "team": "DOMESTIC"},
     
-    # 글로벌 게임사 전담 팀 (GLOBAL)
+    # 글로벌 게임사 전담 팀
     {"keywords": ["hoyoverse", "cognosphere"], "publisher": "HoYoverse", "team": "GLOBAL"},
     {"keywords": ["netease", "exptional"], "publisher": "NetEase", "team": "GLOBAL"},
     {"keywords": ["tencent", "level infinite"], "publisher": "Tencent", "team": "GLOBAL"},
@@ -57,14 +57,12 @@ def infer_publisher_and_team(app_id, developer, email):
     return developer, "GLOBAL", False
 
 def evaluate_grade(is_known_major, email, website, has_trailer):
-    # 1. 이미 알려진 대형 게임사/퍼블리셔인 경우 무조건 [S]등급
     if is_known_major:
         return "[S] 최우선 영업"
         
     email_lower = email.lower()
     is_personal_email = any(domain in email_lower for domain in ["gmail.com", "naver.com", "hanmail.net", "daum.net", "hotmail.com"])
     
-    # 2. 기업 메일 + 공식 웹사이트 + 트레일러 보유
     if not is_personal_email and email != "없음" and website != "없음" and has_trailer == "O":
         return "[A] 대형/우선 검토"
     elif not is_personal_email and email != "없음" and (website != "없음" or has_trailer == "O"):
@@ -106,12 +104,17 @@ def parse_release_date(page):
         
     return "미정 (사전등록 진행 중)"
 
-def send_slack_workflow_notification(targets):
-    """S등급 타겟만 슬랙 워크플로 웹후크로 전송"""
-    if not SLACK_WEBHOOK_URL or not targets:
+def send_slack_bot_notification(targets):
+    """슬랙 봇이 직접 메시지 발송 (본인이 발송하므로 이후 chat.delete로 직접 삭제 가능)"""
+    if not SLACK_BOT_TOKEN or not targets:
+        print("SLACK_BOT_TOKEN이 없거나 발송 타겟이 없습니다.")
         return
         
     sheet_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"
+    headers = {
+        "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+        "Content-Type": "application/json; charset=utf-8"
+    }
     
     for item in targets:
         title = item["title"]
@@ -119,10 +122,8 @@ def send_slack_workflow_notification(targets):
         release_date = item["release_date"]
         store_url = item["store_url"]
         team = item["team"]
-        
         tag = SLACK_TAGS.get(team, "")
         
-        # 슬랙 워크플로의 'text' 변수로 들어갈 메시지 구성
         message_text = (
             f"🚨 *[S등급 최우선 영업 신작 알림]* {tag}\n\n"
             f"🎮 *타이틀명*: {title}\n"
@@ -133,15 +134,29 @@ def send_slack_workflow_notification(targets):
         )
         
         try:
-            # 슬랙 워크플로 웹후크는 {"text": "..."} 포맷으로 수신
-            res = requests.post(SLACK_WEBHOOK_URL, json={"text": message_text}, timeout=10)
-            print(f"슬랙 워크플로 응답 코드: {res.status_code}")
-            time.sleep(1) # 연속 전송 시 1초 대기
+            res = requests.post(
+                "https://slack.com/api/chat.postMessage",
+                headers=headers,
+                json={
+                    "channel": CHANNEL_ID,
+                    "text": message_text,
+                    "unfurl_links": False,
+                    "unfurl_media": False
+                },
+                timeout=10
+            ).json()
+            
+            if res.get("ok"):
+                print(f" 슬랙 봇 발송 성공: {title}")
+            else:
+                print(f"❌ 슬랙 발송 실패 ({title}): {res.get('error')}")
+                
+            time.sleep(1)
         except Exception as e:
-            print(f"슬랙 전송 에러: {e}")
+            print(f"슬랙 통신 에러: {e}")
 
 def run():
-    print("사전등록 게임 S등급 분류 및 출시 모니터링 크롤링을 시작합니다...")
+    print("사전등록 크롤링 및 슬랙 봇 직접 발송 파이프라인 시작...")
     today_str = time.strftime("%Y-%m-%d")
     
     with sync_playwright() as p:
@@ -176,24 +191,20 @@ def run():
                 page.goto(detail_url, wait_until="networkidle")
                 time.sleep(1)
                 
-                # 1. 타이틀
                 title_elem = page.query_selector("h1")
                 title = title_elem.inner_text().strip() if title_elem else app_id
                 
-                # 2. 개발사
                 developer = "확인 필요"
                 dev_elem = page.query_selector('a[href*="/store/apps/developer"]') or page.query_selector('a[href*="/store/apps/dev?id="]')
                 if dev_elem:
                     developer = dev_elem.inner_text().strip()
                 
-                # 3. 개발자 이메일
                 email = "없음"
                 email_elem = page.query_selector('a[href^="mailto:"]')
                 if email_elem:
                     mail_href = email_elem.get_attribute("href")
                     email = mail_href.replace("mailto:", "").split("?")[0].strip()
                 
-                # 4. 공식 웹사이트
                 website = "없음"
                 web_elems = page.query_selector_all('a[href*="http"]')
                 for w in web_elems:
@@ -206,22 +217,15 @@ def run():
                             website = href
                         break
                 
-                # 5. 트레일러 영상
                 has_trailer = "X"
                 trailer_elem = page.query_selector('button[aria-label*="트레일러"]') or page.query_selector('button[aria-label*="동영상"]') or page.query_selector('a[href*="youtube.com"]')
                 if trailer_elem:
                     has_trailer = "O"
                 
-                # 6. 상위 퍼블리셔 및 대형사 여부 판별
                 publisher, team, is_known_major = infer_publisher_and_team(app_id, developer, email)
-                
-                # 7. 출시일 파싱
                 release_date = parse_release_date(page)
-                
-                # 8. 개편된 영업 등급 (S / A / B / C)
                 grade = evaluate_grade(is_known_major, email, website, has_trailer)
                 
-                # [S] 등급만 슬랙 노티 발송 대상에 수집
                 if "[S]" in grade:
                     slack_targets.append({
                         "title": title,
@@ -261,13 +265,12 @@ def run():
         
         worksheet.append_row(headers)
         worksheet.append_rows(scraped_data)
-        print(f"🎉 시트 업데이트 완료: 총 {len(scraped_data)}건 기록")
+        print(f" 시트 저장 완료: 총 {len(scraped_data)}건")
 
-        # 9. S등급 신작만 슬랙 워크플로로 발송
         if slack_targets:
-            print(f"📢 [S등급] 핵심 영업 대상 {len(slack_targets)}건 발견! 슬랙 워크플로 발송 시작...")
-            send_slack_workflow_notification(slack_targets)
-            print(" 슬랙 알림 발송 완료!")
+            print(f"📢 [S등급] {len(slack_targets)}건 대상 봇 알림 발송...")
+            send_slack_bot_notification(slack_targets)
+            print(" 슬랙 봇 알림 작업 종료!")
 
 if __name__ == "__main__":
     run()
