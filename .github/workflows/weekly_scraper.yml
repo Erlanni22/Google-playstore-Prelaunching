@@ -22,7 +22,12 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium
 
-      - name: 크롤러 실행
+      - name: 확인 완료된 슬랙 메시지 자동 삭제
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: python cleanup.py
+
+      - name: 크롤러 실행 및 신작 알림
         env:
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
