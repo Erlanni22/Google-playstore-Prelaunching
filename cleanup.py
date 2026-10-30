@@ -5,9 +5,18 @@ import requests
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
 CHANNEL_ID = "C0BUE1A3601"
 
+CHECK_EMOJIS = [
+    "white_check_mark",
+    "heavy_check_mark",
+    "check",
+    "ballot_box_with_check",
+    "v",
+    "done"
+]
+
 def cleanup_checked_messages():
     if not SLACK_BOT_TOKEN:
-        print("SLACK_BOT_TOKEN이 설정되지 않아 삭제 작업을 건너뜁니다.")
+        print("SLACK_BOT_TOKEN이 설정되지 않았습니다.")
         return
 
     headers = {
@@ -15,7 +24,6 @@ def cleanup_checked_messages():
         "Content-Type": "application/json; charset=utf-8"
     }
 
-    # 최근 메시지 최대 100건 조회
     history_url = "https://slack.com/api/conversations.history"
     params = {
         "channel": CHANNEL_ID,
@@ -28,25 +36,29 @@ def cleanup_checked_messages():
         return
 
     messages = res.get("messages", [])
-    print(f"조회된 최근 메시지 수: {len(messages)}개")
+    print(f"채널 내 최근 메시지 조회 수: {len(messages)}개")
 
     deleted_count = 0
     for msg in messages:
         ts = msg.get("ts")
         reactions = msg.get("reactions", [])
 
-        # V표시(체크 이모지) 확인
-        has_check = any(r.get("name") in ["white_check_mark", "heavy_check_mark", "check"] for r in reactions)
+        # 등록된 체크 계열 이모지가 하나라도 있는지 검사
+        has_check = any(r.get("name") in CHECK_EMOJIS for r in reactions)
 
         if has_check:
             delete_url = "https://slack.com/api/chat.delete"
-            del_res = requests.post(delete_url, headers=headers, json={"channel": CHANNEL_ID, "ts": ts}).json()
+            del_res = requests.post(
+                delete_url,
+                headers=headers,
+                json={"channel": CHANNEL_ID, "ts": ts}
+            ).json()
             
             if del_res.get("ok"):
                 deleted_count += 1
-                print(f"체크 확인된 메시지 삭제 완료 (ts: {ts})")
+                print(f" 체크 확인된 메시지 삭제 완료 (ts: {ts})")
             else:
-                print(f"메시지 삭제 실패 (ts: {ts}): {del_res.get('error')}")
+                print(f"❌ 메시지 삭제 실패 (ts: {ts}): {del_res.get('error')}")
             
             time.sleep(0.5)
 
