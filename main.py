@@ -86,4 +86,76 @@ def parse_release_date(page):
                 return match.group(1).strip() + " (출시 확정)"
                 
         info_btn = page.query_selector('button[aria-label*="자세히"]') or page.query_selector('button:has-text("이 게임 정보")')
-        if info_
+        if info_btn:
+            try:
+                info_btn.click(timeout=1000)
+                time.sleep(0.5)
+                modal_text = page.locator('div[role="dialog"]').inner_text()
+                modal_match = re.search(r'출시일[\s\n]+([0-9]{4}\.\s*[0-9]{1,2}\.\s*[0-9]{1,2})', modal_text)
+                if modal_match:
+                    close_btn = page.query_selector('button[aria-label*="닫기"]')
+                    if close_btn:
+                        close_btn.click()
+                    return modal_match.group(1).strip() + " (출시 확정)"
+            except:
+                pass
+    except:
+        pass
+        
+    return "미정 (사전등록 진행 중)"
+
+def send_slack_bot_notification(targets):
+    if not SLACK_BOT_TOKEN or not targets:
+        print("SLACK_BOT_TOKEN이 없거나 발송 타겟이 없습니다.")
+        return
+        
+    sheet_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"
+    headers = {
+        "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+        "Content-Type": "application/json; charset=utf-8"
+    }
+    
+    for item in targets:
+        title = item["title"]
+        publisher = item["publisher"]
+        release_date = item["release_date"]
+        store_url = item["store_url"]
+        team = item["team"]
+        tag = SLACK_TAGS.get(team, "")
+        
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"🚨 *[S등급 최우선 영업 신작 알림]* {tag}\n\n"
+                        f"🎮 *타이틀명*: *{title}*\n"
+                        f"🏢 *퍼블리셔*: {publisher}\n"
+                        f"📅 *출시 예정일*: {release_date}\n"
+                        f"🔗 *스토어 링크*: <{store_url}|Google Play 바로가기>\n"
+                        f"📊 *시트 DB 확인*: <{sheet_url}|주간 사전등록 시트 바로가기>"
+                    )
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "✅ 확인 완료",
+                            "emoji": True
+                        },
+                        "style": "primary",
+                        "action_id": "confirm_game_check",
+                        "value": title
+                    }
+                ]
+            }
+        ]
+        
+        try:
+            res = requests.post(
+                "
