@@ -76,7 +76,9 @@ def parse_release_date(page):
             match = re.search(pat, body_text)
             if match:
                 return match.group(1).strip() + " (출시 확정)"
-        info_btn = page.query_selector('button[aria-label*="자세히"]') or page.query_selector('button:has-text("이 게임 정보")')
+        info_btn = page.query_selector('button[aria-label*="자세히"]')
+        if not info_btn:
+            info_btn = page.query_selector('button:has-text("이 게임 정보")')
         if info_btn:
             try:
                 info_btn.click(timeout=1000)
@@ -96,7 +98,7 @@ def parse_release_date(page):
 
 def send_slack_bot_notification(targets):
     if not SLACK_BOT_TOKEN or not targets:
-        print("SLACK_BOT_TOKEN 없음 또는 대상 없음")
+        print("SLACK_BOT_TOKEN이 없거나 발송 타겟이 없습니다.")
         return
 
     sheet_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"
@@ -113,46 +115,20 @@ def send_slack_bot_notification(targets):
         team = item["team"]
         tag = SLACK_TAGS.get(team, "")
 
-        text_content = (
+        message_text = (
             f"🚨 *[S등급 최우선 영업 신작 알림]* {tag}\n\n"
             f"🎮 *타이틀명*: *{title}*\n"
             f"🏢 *퍼블리셔*: {publisher}\n"
             f"📅 *출시 예정일*: {release_date}\n"
             f"🔗 *스토어 링크*: <{store_url}|Google Play 바로가기>\n"
-            f"📊 *시트 DB 확인*: <{sheet_url}|주간 사전등록 시트 바로가기>"
+            f"📊 *시트 DB 확인*: <{sheet_url}|주간 사전등록 시트 바로가기>\n\n"
+            f"👉 _담당자 확인 완료 시 메시지에 :white_check_mark:(✅) 이모지를 달아주세요. (다음 실행 시 자동 삭제됩니다)_"
         )
-
-        blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": text_content
-                }
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "✅ 확인 완료",
-                            "emoji": True
-                        },
-                        "style": "primary",
-                        "action_id": "confirm_game_check",
-                        "value": title
-                    }
-                ]
-            }
-        ]
 
         try:
             payload = {
                 "channel": CHANNEL_ID,
-                "text": f"[S등급 신작 알림] {title}",
-                "blocks": blocks,
+                "text": message_text,
                 "unfurl_links": False,
                 "unfurl_media": False
             }
@@ -170,7 +146,7 @@ def send_slack_bot_notification(targets):
 
             time.sleep(1)
         except Exception as e:
-            print(f"통신 에러: {e}")
+            print(f"슬랙 통신 에러: {e}")
 
 def run():
     print("사전등록 크롤러 및 슬랙 봇 시작...")
@@ -184,7 +160,7 @@ def run():
         url = "https://play.google.com/store/apps/collection/promotion_3000000d51_pre_registration_games?hl=ko&gl=kr"
         page.goto(url, wait_until="networkidle")
 
-        for i in range(6):
+        for _ in range(6):
             page.keyboard.press("PageDown")
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             time.sleep(2)
@@ -197,7 +173,7 @@ def run():
                 app_id = href.split("id=")[1].split("&")[0]
                 app_ids.add(app_id)
 
-        print(f"사전등록 앱 {len(app_ids)}개 확인")
+        print(f"사전등록 앱 {len(app_ids)}개 확인 완료")
 
         scraped_data = []
         slack_targets = []
@@ -212,4 +188,88 @@ def run():
                 title = title_elem.inner_text().strip() if title_elem else app_id
 
                 developer = "확인 필요"
-                dev_elem = page.query_selector('a
+                dev_elem = page.query_selector('a[href*="/store/apps/developer"]')
+                if not dev_elem:
+                    dev_elem = page.query_selector('a[href*="/store/apps/dev?id="]')
+                if dev_elem:
+                    developer = dev_elem.inner_text().strip()
+
+                email = "없음"
+                email_elem = page.query_selector('a[href^="mailto:"]')
+                if email_elem:
+                    mail_href = email_elem.get_attribute("href")
+                    email = mail_href.replace("mailto:", "").split("?")[0].strip()
+
+                website = "없음"
+                web_elems = page.query_selector_all('a[href*="http"]')
+                for w in web_elems:
+                    href = w.get_attribute("href") or ""
+                    text = w.inner_text().strip()
+                    if "웹사이트" in text or "Website" in text or "방문" in text:
+                        if "google.com/url?q=" in href:
+                            website = href.split("q=")[1].split("&")[0]
+                        else:
+                            website = href
+                        break
+
+                has_trailer = "X"
+                trailer_elem = page.query_selector('button[aria-label*="트레일러"]')
+                if not trailer_elem:
+                    trailer_elem = page.query_selector('button[aria-label*="동영상"]')
+                if not trailer_elem:
+                    trailer_elem = page.query_selector('a[href*="youtube.com"]')
+                if trailer_elem:
+                    has_trailer = "O"
+
+                publisher, team, is_known_major = infer_publisher_and_team(app_id, developer, email)
+                release_date = parse_release_date(page)
+                grade = evaluate_grade(is_known_major, email, website, has_trailer)
+
+                if "[S]" in grade:
+                    slack_targets.append({
+                        "title": title,
+                        "publisher": publisher,
+                        "release_date": release_date,
+                        "store_url": detail_url,
+                        "team": team
+                    })
+
+                scraped_data.append([
+                    today_str, title, developer, publisher, release_date, email, website, has_trailer, grade, detail_url
+                ])
+            except Exception as e:
+                print(f"파싱 에러 ({app_id}): {e}")
+
+        browser.close()
+
+    if scraped_data:
+        creds_dict = json.loads(GCP_SA_KEY)
+        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        gc = gspread.authorize(creds)
+
+        sh = gc.open_by_key(SHEET_ID)
+
+        try:
+            worksheet = sh.worksheet(today_str)
+            worksheet.clear()
+        except gspread.WorksheetNotFound:
+            worksheet = sh.add_worksheet(title=today_str, rows=1000, cols=12)
+
+        headers = [
+            "수집일자", "타이틀", "개발스튜디오", "상위 퍼블리셔 (컨택 타겟)", 
+            "출시예정일", "개발자 이메일", "공식 웹사이트", "트레일러 영상", 
+            "영업 등급 (자동)", "스토어 링크"
+        ]
+
+        worksheet.append_row(headers)
+        worksheet.append_rows(scraped_data)
+        print(f"시트 저장 완료: 총 {len(scraped_data)}건")
+
+        if slack_targets:
+            print(f"📢 [S등급] {len(slack_targets)}건 대상 봇 알림 발송...")
+            send_slack_bot_notification(slack_targets)
+            print("슬랙 봇 알림 작업 종료!")
+
+if __name__ == "__main__":
+    run()
