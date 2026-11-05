@@ -20,25 +20,50 @@ SLACK_GROUPS = {
     "globalads": "<!subteam^S0CFL5JD76C|globalads>"
 }
 
+# 기본 매핑 규칙 (넵튠과 넥슨 완전 분리)
 DEFAULT_MAPPING = [
-    {"kw": "nexon", "pub": "NEXON Company", "team": "GAD1", "grade": "S"},
-    {"kw": "mintrocket", "pub": "민트로켓 (MINTROCKET)", "team": "GAD1", "grade": "S"},
+    # GAD2: 넵튠 독립 분리 (영문/한글 모두 등록)
     {"kw": "neptune", "pub": "넵튠 (Neptune)", "team": "GAD2", "grade": "S"},
+    {"kw": "넵튠", "pub": "넵튠 (Neptune)", "team": "GAD2", "grade": "S"},
+
+    # GAD1: 넥슨 및 민트로켓
+    {"kw": "nexon", "pub": "NEXON Company", "team": "GAD1", "grade": "S"},
+    {"kw": "넥슨", "pub": "NEXON Company", "team": "GAD1", "grade": "S"},
+    {"kw": "mintrocket", "pub": "민트로켓 (MINTROCKET)", "team": "GAD1", "grade": "S"},
+
+    # GAD2: 국내 주요 게임사
     {"kw": "devsisters", "pub": "데브시스터즈", "team": "GAD2", "grade": "S"},
+    {"kw": "데브시스터즈", "pub": "데브시스터즈", "team": "GAD2", "grade": "S"},
     {"kw": "krafton", "pub": "크래프톤 (Krafton)", "team": "GAD2", "grade": "S"},
+    {"kw": "크래프톤", "pub": "크래프톤 (Krafton)", "team": "GAD2", "grade": "S"},
     {"kw": "kakaogames", "pub": "카카오게임즈", "team": "GAD2", "grade": "S"},
+    {"kw": "카카오게임즈", "pub": "카카오게임즈", "team": "GAD2", "grade": "S"},
     {"kw": "netmarble", "pub": "넷마블 (Netmarble)", "team": "GAD2", "grade": "S"},
+    {"kw": "넷마블", "pub": "넷마블 (Netmarble)", "team": "GAD2", "grade": "S"},
     {"kw": "ncsoft", "pub": "엔씨소프트 (NCSoft)", "team": "GAD2", "grade": "S"},
+    {"kw": "엔씨", "pub": "엔씨소프트 (NCSoft)", "team": "GAD2", "grade": "S"},
     {"kw": "com2us", "pub": "컴투스 (Com2uS)", "team": "GAD2", "grade": "S"},
+    {"kw": "컴투스", "pub": "컴투스 (Com2uS)", "team": "GAD2", "grade": "S"},
     {"kw": "smilegate", "pub": "스마일게이트", "team": "GAD2", "grade": "S"},
+    {"kw": "스마일게이트", "pub": "스마일게이트", "team": "GAD2", "grade": "S"},
     {"kw": "webzen", "pub": "웹젠 (Webzen)", "team": "GAD2", "grade": "S"},
+    {"kw": "웹젠", "pub": "웹젠 (Webzen)", "team": "GAD2", "grade": "S"},
     {"kw": "neowiz", "pub": "네오위즈 (Neowiz)", "team": "GAD2", "grade": "S"},
+    {"kw": "네오위즈", "pub": "네오위즈 (Neowiz)", "team": "GAD2", "grade": "S"},
     {"kw": "gravity", "pub": "그라비티 (Gravity)", "team": "GAD2", "grade": "S"},
+    {"kw": "그라비티", "pub": "그라비티 (Gravity)", "team": "GAD2", "grade": "S"},
     {"kw": "linegames", "pub": "라인게임즈", "team": "GAD2", "grade": "S"},
+    {"kw": "라인게임즈", "pub": "라인게임즈", "team": "GAD2", "grade": "S"},
     {"kw": "blizzard", "pub": "Blizzard Entertainment", "team": "GAD2", "grade": "S"},
+    {"kw": "블리자드", "pub": "Blizzard Entertainment", "team": "GAD2", "grade": "S"},
     {"kw": "joycity", "pub": "조이시티(Joycity)", "team": "GAD2", "grade": "A"},
+    {"kw": "조이시티", "pub": "조이시티(Joycity)", "team": "GAD2", "grade": "A"},
     {"kw": "wemade", "pub": "위메이드(Wemade)", "team": "GAD2", "grade": "S"},
+    {"kw": "위메이드", "pub": "위메이드(Wemade)", "team": "GAD2", "grade": "S"},
     {"kw": "pearlabyss", "pub": "펄어비스(Pearl Abyss)", "team": "GAD2", "grade": "S"},
+    {"kw": "펄어비스", "pub": "펄어비스(Pearl Abyss)", "team": "GAD2", "grade": "S"},
+
+    # 글로벌
     {"kw": "shiftup", "pub": "시프트업 (Shift Up)", "team": "글로벌", "grade": "S"},
     {"kw": "seasun", "pub": "어메이징 시선 (Seasun)", "team": "글로벌", "grade": "S"},
     {"kw": "amazingsun", "pub": "어메이징 시선", "team": "글로벌", "grade": "S"},
@@ -145,7 +170,7 @@ def send_slack_bot_notification(targets, sheet_url, today_str):
         tag = SLACK_GROUPS.get(team, f"@{team}")
 
         lines = [
-            f"🚨 *[구글 플레이스토어 신작 알림]* {tag}",
+            f"🚨 *[S등급 최우선 영업 신작 알림]* {tag}",
             "",
             f"🎮 *타이틀명*: *{title}*",
             f"🏢 *퍼블리셔*: {publisher} (담당: {team})",
