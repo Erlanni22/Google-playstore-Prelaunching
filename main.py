@@ -12,49 +12,102 @@ GCP_SA_KEY = os.environ.get("GCP_SA_KEY")
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
 CHANNEL_ID = "C0BUE1A3601"
 
-SLACK_TAGS = {
-    "NEXON": "<@U_NEXON_LEAD>",
-    "DOMESTIC": "<@U_DOMESTIC_LEAD>",
-    "GLOBAL": "<@U_GLOBAL_LEAD>"
+# 슬랙 사용자 그룹 ID 직접 연동 매핑
+SLACK_GROUPS = {
+    "GAD1": "<!subteam^S02G8L3148M|gad1>",
+    "GAD2": "<!subteam^S0139CGU5U2|gad2>",
+    "글로벌": "<!subteam^S0CFL5JD76C|globalads>",
+    "globalads": "<!subteam^S0CFL5JD76C|globalads>"
 }
 
-PUBLISHER_MAPPING = [
-    {"keywords": ["nexon", "neptune", "넵튠", "devsisters", "데브시스터즈"], "publisher": "NEXON Company", "team": "NEXON"},
-    {"keywords": ["krafton", "크래프톤"], "publisher": "Krafton", "team": "DOMESTIC"},
-    {"keywords": ["kakaogames", "kakao"], "publisher": "Kakao Games", "team": "DOMESTIC"},
-    {"keywords": ["netmarble", "넷마블"], "publisher": "Netmarble", "team": "DOMESTIC"},
-    {"keywords": ["ncsoft", "엔씨"], "publisher": "NCSoft", "team": "DOMESTIC"},
-    {"keywords": ["com2us"], "publisher": "Com2uS", "team": "DOMESTIC"},
-    {"keywords": ["smilegate"], "publisher": "Smilegate", "team": "DOMESTIC"},
-    {"keywords": ["neowiz"], "publisher": "Neowiz", "team": "DOMESTIC"},
-    {"keywords": ["webzen"], "publisher": "Webzen", "team": "DOMESTIC"},
-    {"keywords": ["gravity"], "publisher": "Gravity", "team": "DOMESTIC"},
-    {"keywords": ["linegames"], "publisher": "Line Games", "team": "DOMESTIC"},
-    {"keywords": ["hoyoverse", "cognosphere"], "publisher": "HoYoverse", "team": "GLOBAL"},
-    {"keywords": ["netease", "exptional"], "publisher": "NetEase", "team": "GLOBAL"},
-    {"keywords": ["tencent", "level infinite"], "publisher": "Tencent", "team": "GLOBAL"},
-    {"keywords": ["bandainamco", "bandai"], "publisher": "Bandai Namco", "team": "GLOBAL"},
-    {"keywords": ["ujoy"], "publisher": "Ujoy Games", "team": "GLOBAL"},
-    {"keywords": ["vng"], "publisher": "VNG Games", "team": "GLOBAL"},
-    {"keywords": ["wanda"], "publisher": "Wanda Games", "team": "GLOBAL"},
-    {"keywords": ["blancozone"], "publisher": "Blancozone", "team": "GLOBAL"},
-    {"keywords": ["playdigious"], "publisher": "Playdigious", "team": "GLOBAL"},
-    {"keywords": ["noodlecake"], "publisher": "Noodlecake", "team": "GLOBAL"}
-]
+def load_publisher_db(sh):
+    """시트의 '시트 DB' 또는 '퍼블리셔_DB' 탭에서 광고주 마스터 매핑 룰 로드"""
+    target_tab_names = ["시트 DB", "퍼블리셔_DB"]
+    for tab_name in target_tab_names:
+        try:
+            db_sheet = sh.worksheet(tab_name)
+            records = db_sheet.get_all_records()
+            mapping = []
+            for r in records:
+                kw = str(r.get("키워드 (검색어)", "")).strip().lower()
+                pub = str(r.get("정식 퍼블리셔명", "")).strip()
+                team = str(r.get("담당 팀", "글로벌")).strip()
+                grade = str(r.get("기본 등급", "A")).strip()
+                if kw:
+                    mapping.append({
+                        "keyword": kw,
+                        "publisher": pub,
+                        "team": team,
+                        "grade": grade
+                    })
+            if mapping:
+                print(f"'{tab_name}' 탭에서 {len(mapping)}개의 기준 룰 로드 완료!")
+                return mapping
+        except Exception:
+            continue
 
-def infer_publisher_and_team(app_id, developer, email):
+    print("⚠️ 시트 DB 탭 로드 실패 시 내장 기본값으로 매핑을 진행합니다.")
+    return [
+        {"keyword": "nexon", "publisher": "NEXON Company", "team": "GAD1", "grade": "S"},
+        {"keyword": "mintrocket", "publisher": "민트로켓 (MINTROCKET)", "team": "GAD1", "grade": "S"},
+        {"keyword": "neptune", "publisher": "넵튠 (Neptune)", "team": "GAD2", "grade": "S"},
+        {"keyword": "devsisters", "publisher": "데브시스터즈", "team": "GAD2", "grade": "S"},
+        {"keyword": "krafton", "publisher": "크래프톤 (Krafton)", "team": "GAD2", "grade": "S"},
+        {"keyword": "kakaogames", "publisher": "카카오게임즈", "team": "GAD2", "grade": "S"},
+        {"keyword": "netmarble", "publisher": "넷마블 (Netmarble)", "team": "GAD2", "grade": "S"},
+        {"keyword": "ncsoft", "publisher": "엔씨소프트 (NCSoft)", "team": "GAD2", "grade": "S"},
+        {"keyword": "com2us", "publisher": "컴투스 (Com2uS)", "team": "GAD2", "grade": "S"},
+        {"keyword": "smilegate", "publisher": "스마일게이트", "team": "GAD2", "grade": "S"},
+        {"keyword": "webzen", "publisher": "웹젠 (Webzen)", "team": "GAD2", "grade": "S"},
+        {"keyword": "neowiz", "publisher": "네오위즈 (Neowiz)", "team": "GAD2", "grade": "S"},
+        {"keyword": "gravity", "publisher": "그라비티 (Gravity)", "team": "GAD2", "grade": "S"},
+        {"keyword": "linegames", "publisher": "라인게임즈", "team": "GAD2", "grade": "S"},
+        {"keyword": "blizzard", "publisher": "Blizzard Entertainment, Inc.", "team": "GAD2", "grade": "S"},
+        {"keyword": "joycity", "publisher": "조이시티(Joycity)", "team": "GAD2", "grade": "A"},
+        {"keyword": "wemade", "publisher": "위메이드(Wemade)", "team": "GAD2", "grade": "S"},
+        {"keyword": "pearlabyss", "publisher": "펄어비스(Pearl Abyss)", "team": "GAD2", "grade": "S"},
+        {"keyword": "shiftup", "publisher": "시프트업 (Shift Up)", "team": "글로벌", "grade": "S"},
+        {"keyword": "seasun", "publisher": "어메이징 시선 (Seasun Games)", "team": "글로벌", "grade": "S"},
+        {"keyword": "amazingsun", "publisher": "어메이징 시선 (Seasun Games)", "team": "글로벌", "grade": "S"},
+        {"keyword": "pawprint", "publisher": "파우프린트 (Pawprint)", "team": "글로벌", "grade": "S"},
+        {"keyword": "animo", "publisher": "파우프린트 (Pawprint)", "team": "글로벌", "grade": "S"},
+        {"keyword": "yostar", "publisher": "요스타 (Yostar)", "team": "글로벌", "grade": "S"},
+        {"keyword": "x.d.", "publisher": "XD (X.D. Network/Global)", "team": "글로벌", "grade": "S"},
+        {"keyword": "xd global", "publisher": "XD (X.D. Network/Global)", "team": "글로벌", "grade": "S"},
+        {"keyword": "xd entertainment", "publisher": "XD (X.D. Network/Global)", "team": "글로벌", "grade": "S"},
+        {"keyword": "xd network", "publisher": "XD (X.D. Network/Global)", "team": "글로벌", "grade": "S"},
+        {"keyword": "century games", "publisher": "센추리 게임즈 (Century Games)", "team": "글로벌", "grade": "S"},
+        {"keyword": "garena", "publisher": "가레나 (Garena)", "team": "글로벌", "grade": "S"},
+        {"keyword": "konami", "publisher": "코나미 (KONAMI)", "team": "글로벌", "grade": "S"},
+        {"keyword": "kuro", "publisher": "쿠로게임즈 (Kuro Games)", "team": "글로벌", "grade": "S"},
+        {"keyword": "habby", "publisher": "하비 (Habby)", "team": "글로벌", "grade": "S"},
+        {"keyword": "lilith", "publisher": "릴리스 게임즈 (Lilith Games)", "team": "글로벌", "grade": "S"},
+        {"keyword": "bilibili", "publisher": "빌리빌리 (bilibili)", "team": "글로벌", "grade": "A"},
+        {"keyword": "hoyoverse", "publisher": "호요버스 (HoYoverse)", "team": "글로벌", "grade": "S"},
+        {"keyword": "cognosphere", "publisher": "호요버스 (HoYoverse)", "team": "글로벌", "grade": "S"},
+        {"keyword": "netease", "publisher": "넷이즈 (NetEase)", "team": "글로벌", "grade": "S"},
+        {"keyword": "exptional", "publisher": "넷이즈 (NetEase)", "team": "글로벌", "grade": "S"}
+    ]
+
+def infer_publisher_and_team(app_id, developer, email, publisher_db):
     search_target = f"{app_id} {developer} {email}".lower()
-    for item in PUBLISHER_MAPPING:
-        for kw in item["keywords"]:
-            if kw in search_target:
-                return item["publisher"], item["team"], True
-    return developer, "GLOBAL", False
+    for item in publisher_db:
+        if item["keyword"] in search_target:
+            return item["publisher"], item["team"], item["grade"], True
+    return developer, "글로벌", "C", False
 
-def evaluate_grade(is_known_major, email, website, has_trailer):
-    if is_known_major:
-        return "[S] 최우선 영업"
+def evaluate_grade(db_grade, is_in_db, email, website, has_trailer):
+    if is_in_db:
+        if db_grade == "S":
+            return "[S] 최우선 영업"
+        elif db_grade == "A":
+            return "[A] 대형/우선 검토"
+        elif db_grade == "B":
+            return "[B] 중형/일반 검토"
+
     email_lower = email.lower()
-    is_personal_email = any(domain in email_lower for domain in ["gmail.com", "naver.com", "hanmail.net", "daum.net", "hotmail.com"])
+    is_personal_email = any(d in email_lower for d in ["gmail.com", "naver.com", "hanmail.net", "daum.net", "hotmail.com"])
+
     if not is_personal_email and email != "없음" and website != "없음" and has_trailer == "O":
         return "[A] 대형/우선 검토"
     elif not is_personal_email and email != "없음" and (website != "없음" or has_trailer == "O"):
@@ -76,6 +129,7 @@ def parse_release_date(page):
             match = re.search(pat, body_text)
             if match:
                 return match.group(1).strip() + " (출시 확정)"
+
         info_btn = page.query_selector('button[aria-label*="자세히"]')
         if not info_btn:
             info_btn = page.query_selector('button:has-text("이 게임 정보")')
@@ -96,180 +150,4 @@ def parse_release_date(page):
         pass
     return "미정 (사전등록 진행 중)"
 
-def send_slack_bot_notification(targets):
-    if not SLACK_BOT_TOKEN or not targets:
-        print("SLACK_BOT_TOKEN이 없거나 발송 타겟이 없습니다.")
-        return
-
-    sheet_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"
-    headers = {
-        "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
-        "Content-Type": "application/json; charset=utf-8"
-    }
-
-    for item in targets:
-        title = item["title"]
-        publisher = item["publisher"]
-        release_date = item["release_date"]
-        store_url = item["store_url"]
-        team = item["team"]
-        tag = SLACK_TAGS.get(team, "")
-
-        message_text = (
-            f"🚨 *[S등급 최우선 영업 신작 알림]* {tag}\n\n"
-            f"🎮 *타이틀명*: *{title}*\n"
-            f"🏢 *퍼블리셔*: {publisher}\n"
-            f"📅 *출시 예정일*: {release_date}\n"
-            f"🔗 *스토어 링크*: <{store_url}|Google Play 바로가기>\n"
-            f"📊 *시트 DB 확인*: <{sheet_url}|주간 사전등록 시트 바로가기>\n\n"
-            f"👉 _담당자 확인 완료 시 메시지에 :white_check_mark:(✅) 이모지를 달아주세요. (다음 실행 시 자동 삭제됩니다)_"
-        )
-
-        try:
-            payload = {
-                "channel": CHANNEL_ID,
-                "text": message_text,
-                "unfurl_links": False,
-                "unfurl_media": False
-            }
-            res = requests.post(
-                "https://slack.com/api/chat.postMessage",
-                headers=headers,
-                json=payload,
-                timeout=10
-            ).json()
-
-            if res.get("ok"):
-                print(f"발송 성공: {title}")
-            else:
-                print(f"발송 실패 ({title}): {res.get('error')}")
-
-            time.sleep(1)
-        except Exception as e:
-            print(f"슬랙 통신 에러: {e}")
-
-def run():
-    print("사전등록 크롤러 및 슬랙 봇 시작...")
-    today_str = time.strftime("%Y-%m-%d")
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(locale="ko-KR")
-        page = context.new_page()
-
-        url = "https://play.google.com/store/apps/collection/promotion_3000000d51_pre_registration_games?hl=ko&gl=kr"
-        page.goto(url, wait_until="networkidle")
-
-        for _ in range(6):
-            page.keyboard.press("PageDown")
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            time.sleep(2)
-
-        elements = page.query_selector_all('a[href*="/store/apps/details?id="]')
-        app_ids = set()
-        for elem in elements:
-            href = elem.get_attribute("href")
-            if href and "id=" in href:
-                app_id = href.split("id=")[1].split("&")[0]
-                app_ids.add(app_id)
-
-        print(f"사전등록 앱 {len(app_ids)}개 확인 완료")
-
-        scraped_data = []
-        slack_targets = []
-
-        for app_id in app_ids:
-            detail_url = f"https://play.google.com/store/apps/details?id={app_id}&hl=ko&gl=kr"
-            try:
-                page.goto(detail_url, wait_until="networkidle")
-                time.sleep(1)
-
-                title_elem = page.query_selector("h1")
-                title = title_elem.inner_text().strip() if title_elem else app_id
-
-                developer = "확인 필요"
-                dev_elem = page.query_selector('a[href*="/store/apps/developer"]')
-                if not dev_elem:
-                    dev_elem = page.query_selector('a[href*="/store/apps/dev?id="]')
-                if dev_elem:
-                    developer = dev_elem.inner_text().strip()
-
-                email = "없음"
-                email_elem = page.query_selector('a[href^="mailto:"]')
-                if email_elem:
-                    mail_href = email_elem.get_attribute("href")
-                    email = mail_href.replace("mailto:", "").split("?")[0].strip()
-
-                website = "없음"
-                web_elems = page.query_selector_all('a[href*="http"]')
-                for w in web_elems:
-                    href = w.get_attribute("href") or ""
-                    text = w.inner_text().strip()
-                    if "웹사이트" in text or "Website" in text or "방문" in text:
-                        if "google.com/url?q=" in href:
-                            website = href.split("q=")[1].split("&")[0]
-                        else:
-                            website = href
-                        break
-
-                has_trailer = "X"
-                trailer_elem = page.query_selector('button[aria-label*="트레일러"]')
-                if not trailer_elem:
-                    trailer_elem = page.query_selector('button[aria-label*="동영상"]')
-                if not trailer_elem:
-                    trailer_elem = page.query_selector('a[href*="youtube.com"]')
-                if trailer_elem:
-                    has_trailer = "O"
-
-                publisher, team, is_known_major = infer_publisher_and_team(app_id, developer, email)
-                release_date = parse_release_date(page)
-                grade = evaluate_grade(is_known_major, email, website, has_trailer)
-
-                if "[S]" in grade:
-                    slack_targets.append({
-                        "title": title,
-                        "publisher": publisher,
-                        "release_date": release_date,
-                        "store_url": detail_url,
-                        "team": team
-                    })
-
-                scraped_data.append([
-                    today_str, title, developer, publisher, release_date, email, website, has_trailer, grade, detail_url
-                ])
-            except Exception as e:
-                print(f"파싱 에러 ({app_id}): {e}")
-
-        browser.close()
-
-    if scraped_data:
-        creds_dict = json.loads(GCP_SA_KEY)
-        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        gc = gspread.authorize(creds)
-
-        sh = gc.open_by_key(SHEET_ID)
-
-        try:
-            worksheet = sh.worksheet(today_str)
-            worksheet.clear()
-        except gspread.WorksheetNotFound:
-            worksheet = sh.add_worksheet(title=today_str, rows=1000, cols=12)
-
-        headers = [
-            "수집일자", "타이틀", "개발스튜디오", "상위 퍼블리셔 (컨택 타겟)", 
-            "출시예정일", "개발자 이메일", "공식 웹사이트", "트레일러 영상", 
-            "영업 등급 (자동)", "스토어 링크"
-        ]
-
-        worksheet.append_row(headers)
-        worksheet.append_rows(scraped_data)
-        print(f"시트 저장 완료: 총 {len(scraped_data)}건")
-
-        if slack_targets:
-            print(f"📢 [S등급] {len(slack_targets)}건 대상 봇 알림 발송...")
-            send_slack_bot_notification(slack_targets)
-            print("슬랙 봇 알림 작업 종료!")
-
-if __name__ == "__main__":
-    run()
+def send_slack_bot_notification(targets, target_sheet_url, today_str):
