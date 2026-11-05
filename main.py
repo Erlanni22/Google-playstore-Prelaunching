@@ -144,8 +144,157 @@ def send_slack_bot_notification(targets, sheet_url, today_str):
         team = item["team"]
         tag = SLACK_GROUPS.get(team, f"@{team}")
 
-        msg = (
-            f"🚨 *[구글 플레이스토어 신작 알림]* {tag}\n\n"
-            f"🎮 *타이틀명*: *{title}*\n"
-            f"🏢 *퍼블리셔*: {publisher} (담당: {team})\n"
-            f"📅 *출시 예정일*: {release_date}\n"
+        lines = [
+            f"🚨 *[구글 플레이스토어 신작 알림]* {tag}",
+            "",
+            f"🎮 *타이틀명*: *{title}*",
+            f"🏢 *퍼블리셔*: {publisher} (담당: {team})",
+            f"📅 *출시 예정일*: {release_date}",
+            f"🔗 *스토어 링크*: <{store_url}|Google Play 바로가기>",
+            f"📊 *시트 DB 확인*: <{sheet_url}|{today_str} 신규 탭 바로가기>",
+            "",
+            "👉 _확인 완료 시 이 메시지에 :white_check_mark:(✅) 이모지를 달아주세요._"
+        ]
+        msg = "\n".join(lines)
+
+        try:
+            requests.post(
+                "https://slack.com/api/chat.postMessage",
+                headers=headers,
+                json={
+                    "channel": CHANNEL_ID,
+                    "text": msg,
+                    "unfurl_links": False,
+                    "unfurl_media": False
+                },
+                timeout=10
+            )
+            time.sleep(1)
+        except Exception as e:
+            print(f"슬랙 전송 예외: {e}")
+
+def run():
+    print("사전등록 수집 및 알림 시작...")
+    today_str = time.strftime("%Y-%m-%d")
+
+    creds_dict = json.loads(GCP_SA_KEY)
+    creds = Credentials.from_service_account_info(
+        creds_dict,
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
+    )
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_key(SHEET_ID)
+
+    publisher_db = load_publisher_db(sh)
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(locale="ko-KR")
+        page = context.new_page()
+
+        url = "https://play.google.com/store/apps/collection/promotion_3000000d51_pre_registration_games?hl=ko&gl=kr"
+        page.goto(url, wait_until="networkidle")
+
+        for _ in range(6):
+            page.keyboard.press("PageDown")
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            time.sleep(2)
+
+        elems = page.query_selector_all('a[href*="/store/apps/details?id="]')
+        app_ids = set()
+        for el in elems:
+            href = el.get_attribute("href")
+            if href and "id=" in href:
+                app_ids.add(href.split("id=")[1].split("&")[0])
+
+        print(f"사전등록 앱 {len(app_ids)}개 발견")
+
+        scraped_data = []
+        slack_targets = []
+
+        for app_id in app_ids:
+            detail_url = f"https://play.google.com/store/apps/details?id={app_id}&hl=ko&gl=kr"
+            try:
+                page.goto(detail_url, wait_until="networkidle")
+                time.sleep(1)
+
+                t_el = page.query_selector("h1")
+                title = t_el.inner_text().strip() if t_el else app_id
+
+                dev = "확인 필요"
+                d_el = page.query_selector('a[href*="/store/apps/developer"]')
+                if not d_el:
+                    d_el = page.query_selector('a[href*="/store/apps/dev?id="]')
+                if d_el:
+                    dev = d_el.inner_text().strip()
+
+                email = "없음"
+                m_el = page.query_selector('a[href^="mailto:"]')
+                if m_el:
+                    email = m_el.get_attribute("href").replace("mailto:", "").split("?")[0].strip()
+
+                website = "없음"
+                w_els = page.query_selector_all('a[href*="http"]')
+                for w in w_els:
+                    txt = w.inner_text().strip()
+                    if any(k in txt for k in ["웹사이트", "Website", "방문"]):
+                        hr = w.get_attribute("href") or ""
+                        website = hr.split("q=")[1].split("&")[0] if "google.com/url?q=" in hr else hr
+                        break
+
+                trailer = "X"
+                tr_el = page.query_selector('button[aria-label*="트레일러"]')
+                if not tr_el:
+                    tr_el = page.query_selector('button[aria-label*="동영상"]')
+                if not tr_el:
+                    tr_el = page.query_selector('a[href*="youtube.com"]')
+                if tr_el:
+                    trailer = "O"
+
+                pub, team, db_grade, in_db = infer_publisher_and_team(app_id, dev, email, publisher_db)
+                r_date = parse_release_date(page)
+                grade = evaluate_grade(db_grade, in_db, email, website, trailer)
+
+                if "[S]" in grade:
+                    slack_targets.append({
+                        "title": title,
+                        "publisher": pub,
+                        "release_date": r_date,
+                        "store_url": detail_url,
+                        "team": team
+                    })
+
+                scraped_data.append([
+                    today_str, title, dev, pub, team, r_date, email, website, trailer, grade, detail_url
+                ])
+            except Exception as e:
+                print(f"파싱 건너뜀 ({app_id}): {e}")
+
+        browser.close()
+
+    if scraped_data:
+        try:
+            worksheet = sh.worksheet(today_str)
+            worksheet.clear()
+        except gspread.WorksheetNotFound:
+            worksheet = sh.add_worksheet(title=today_str, rows=1000, cols=12)
+
+        target_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit#gid={worksheet.id}"
+
+        headers = [
+            "수집일자", "타이틀", "개발스튜디오", "상위 퍼블리셔 (컨택 타겟)", "담당 팀",
+            "출시예정일", "개발자 이메일", "공식 웹사이트", "트레일러 영상", 
+            "영업 등급 (자동)", "스토어 링크"
+        ]
+
+        worksheet.append_row(headers)
+        worksheet.append_rows(scraped_data)
+        print(f"'{today_str}' 탭에 {len(scraped_data)}건 기록 완료! (gid: {worksheet.id})")
+
+        if slack_targets:
+            print(f"[S등급] {len(slack_targets)}건 슬랙 발송 시작...")
+            send_slack_bot_notification(slack_targets, target_url, today_str)
+            print("발송 완료!")
+
+if __name__ == "__main__":
+    run()
